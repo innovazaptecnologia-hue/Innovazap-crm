@@ -1,6 +1,6 @@
-# Guia de Instalação — Mega CRM (Agentise)
+# Guia de Instalação — Innovazap CRM
 
-White-label self-hosted: **Mega CRM** — WhatsApp oficial + funil comercial,
+White-label self-hosted: **Innovazap CRM** — WhatsApp oficial + funil comercial,
 entrega de projetos e educação numa instância só.
 
 > **O que é.** Plataforma de WhatsApp oficial (templates, campanhas, inbox com
