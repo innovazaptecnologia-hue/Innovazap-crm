@@ -38,16 +38,16 @@ export function Sidebar() {
         )}
       >
         <img
-          src="/agentise-mark.png"
-          alt="Agentise"
+          src="/innovazap-logo.png"
+          alt="Innovazap"
           className="h-9 w-9 shrink-0 rounded-lg shadow-[0_0_20px_rgba(59,130,246,0.35)]"
         />
         {!collapsed && (
           <div className="leading-tight min-w-0 flex-1">
             <div className="text-[0.65rem] uppercase tracking-[0.12em] text-[var(--color-text-secondary)]">
-              Agentise
+              Innovazap
             </div>
-            <div className="text-sm font-bold text-[var(--color-text-primary)]">MEGACRM</div>
+            <div className="text-sm font-bold text-[var(--color-text-primary)]">CRM</div>
           </div>
         )}
       </div>
