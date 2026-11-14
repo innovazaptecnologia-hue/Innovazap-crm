@@ -16,13 +16,13 @@ export function AuthShell({ title, subtitle, children, footer }: AuthShellProps)
         <div className="flex items-center justify-center mb-8">
           <div className="flex items-center gap-3">
             <img
-              src="/agentise-mark.png"
-              alt="Agentise"
+              src="/innovazap-logo.png"
+              alt="Innovazap"
               className="h-12 w-12 rounded-xl shadow-[0_0_30px_rgba(59,130,246,0.35)]"
             />
             <div>
-              <div className="text-label">Agentise</div>
-              <div className="text-xl font-bold text-display">MEGACRM</div>
+              <div className="text-label">Innovazap</div>
+              <div className="text-xl font-bold text-display">CRM</div>
             </div>
           </div>
         </div>
