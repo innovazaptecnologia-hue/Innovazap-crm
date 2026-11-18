@@ -14,7 +14,6 @@ import { requireOrgCaller, AuthError } from '../_shared/auth.ts';
 import { getAdminClient } from '../_shared/supabase-admin.ts';
 import { jsonResponse, preflight } from '../_shared/cors.ts';
 import { ZernioError, uploadMediaDirect } from '../_shared/zernio.ts';
-import { loadOrgZernioContext } from '../_shared/channels.ts';
 import { sendInboxWithResolve } from '../_shared/inbox-delivery.ts';
 
 const MAX_BYTES = 25 * 1024 * 1024;
