@@ -112,6 +112,27 @@ export async function uazapiSendMedia(
   return { messageId: messageIdOf(root) };
 }
 
+export async function uazapiDownloadMedia(
+  ctx: UazapiContext,
+  messageId: string,
+): Promise<{ fileURL: string; mimetype: string | null }> {
+  const root = await ufetch(ctx, '/message/download', {
+    id: messageId,
+    return_link: true,
+    return_base64: false,
+    generate_mp3: true,
+  });
+  const fileURL =
+    (typeof root.fileURL === 'string' && root.fileURL) ||
+    (typeof root.fileUrl === 'string' && root.fileUrl) ||
+    '';
+  if (!fileURL) throw new UazapiError('UAZAPI não devolveu fileURL.', 502);
+  return {
+    fileURL,
+    mimetype: typeof root.mimetype === 'string' ? root.mimetype : null,
+  };
+}
+
 // POST /chat/details {number, preview} → detalhes completos do chat/contato,
 // incluindo a URL da foto de perfil: `imagePreview` (menor, preview=true) ou
 // `image` (resolução original, preview=false). Usada para exibir o avatar do
