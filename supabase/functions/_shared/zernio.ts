@@ -547,19 +547,29 @@ export async function uploadMediaDirect(input: {
     throw new ZernioError('Arquivo excede o limite de 25MB do Zernio.', 400);
   }
   let res: Response;
+
   try {
-    res = await fetch(
-      `${ZERNIO_API_BASE_URL}/media/upload-direct?filename=${encodeURIComponent(input.filename)}`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${input.apiKey}`,
-          'Content-Type': input.contentType,
-        },
-        body: input.bytes,
-      },
-    );
-  } catch (err) {
+  const form = new FormData();
+
+  const bytes = new Uint8Array(input.bytes.byteLength);
+bytes.set(input.bytes);
+
+const arquivo = new Blob([bytes.buffer], {
+  type: input.contentType || 'application/octet-stream',
+});
+
+
+  form.append('file', arquivo, input.filename);
+  form.append('contentType', input.contentType || 'application/octet-stream');
+
+  res = await fetch(`${ZERNIO_API_BASE_URL}/media/upload-direct`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${input.apiKey}`,
+    },
+    body: form,
+  });
+} catch (err) {
     throw new ZernioError(
       `Falha de rede ao subir mídia: ${err instanceof Error ? err.message : 'erro'}`,
     );
