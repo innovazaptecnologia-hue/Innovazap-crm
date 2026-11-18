@@ -132,20 +132,6 @@ export function MessageInput({ conversationId, disabled, withinWindow = true, on
     recorderRef.current?.stop();
   };
 
-const sendVoice = async (voice: File) => {
-  setSending(true);
-  try {
-    const result = await uploadAndSend(voice, {
-      conversationId,
-      voiceNote: true,
-    });
-    if (result.error || !result.data?.ok) {
-      toast.error('Falha ao enviar áudio', { description: result.message });
-    }
-  } finally {
-    setSending(false);
-  }
-};
 
   const onPickFile = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
@@ -158,20 +144,70 @@ const sendVoice = async (voice: File) => {
     if (f) setIsPrivate(false); // mídia nunca é nota privada
   };
 
+const uploadAndSend = async (selected: File, caption: string, voiceNote: boolean) => {
+  const supabase = getSupabase();
+  const prepared = await supabase.functions.invoke('send-operator-media', {
+    body: {
+      action: 'prepare-upload',
+      conversation_id: conversationId,
+      filename: selected.name,
+      mime: selected.type || 'application/octet-stream',
+    },
+  });
+  if (prepared.error || !prepared.data?.ok || !prepared.data.path || !prepared.data.token) {
+    toast.error(voiceNote ? 'Falha ao enviar áudio' : 'Falha ao enviar mídia', {
+      description: prepared.data?.error ?? prepared.error?.message ?? 'Erro desconhecido',
+    });
+    return false;
+  }
+
+  const uploaded = await supabase.storage
+    .from('whatsapp-hub-agent-media')
+    .uploadToSignedUrl(prepared.data.path, prepared.data.token, selected);
+  if (uploaded.error) {
+    toast.error(voiceNote ? 'Falha ao enviar áudio' : 'Falha ao enviar mídia', {
+      description: uploaded.error.message,
+    });
+    return false;
+  }
+
+  const sent = await supabase.functions.invoke('send-operator-media', {
+    body: {
+      action: 'send-stored',
+      conversation_id: conversationId,
+      path: prepared.data.path,
+      content: caption,
+      voice_note: voiceNote,
+      mime: selected.type || 'application/octet-stream',
+    },
+  });
+  if (sent.error || !sent.data?.ok) {
+    toast.error(voiceNote ? 'Falha ao enviar áudio' : 'Falha ao enviar mídia', {
+      description: sent.data?.error ?? sent.error?.message ?? 'Erro desconhecido',
+    });
+    return false;
+  }
+  return true;
+};
+
+const sendVoice = async (voice: File) => {
+  setSending(true);
+  try {
+    await uploadAndSend(voice, '', true);
+  } finally {
+    setSending(false);
+  }
+};
+
 const sendMedia = async () => {
   if (!file) return;
-  const result = await uploadAndSend(file, {
-    conversationId,
-    caption: content.trim() || undefined,
-  });
-  if (result.error || !result.data?.ok) {
-    toast.error('Falha ao enviar mídia', { description: result.message });
-    return;
-  }
+  const ok = await uploadAndSend(file, content.trim(), false);
+  if (!ok) return;
   setFile(null);
   setContent('');
   if (fileInputRef.current) fileInputRef.current.value = '';
 };
+
 
   // Texto/nota: OTIMISTA. Limpa o input na hora, o balão aparece imediatamente
   // (dentro do onSendText) e a requisição roda em segundo plano. Não bloqueia o
