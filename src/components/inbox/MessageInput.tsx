@@ -18,63 +18,6 @@ interface MessageInputProps {
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
-const MEDIA_BUCKET = 'whatsapp-hub-agent-media';
-
-async function invokeMedia(body: Record<string, unknown>) {
-  const supabase = getSupabase();
-  const { data, error } = await supabase.functions.invoke('send-operator-media', { body });
-  let message = data?.error ?? error?.message ?? 'Erro desconhecido';
-  if (!data?.error && error?.context && typeof error.context.json === 'function') {
-    try {
-      const body = await error.context.json();
-      if (body?.error) message = String(body.error);
-    } catch {
-      // mantém a mensagem já obtida
-    }
-  }
-  return { data, error, message };
-}
-
-async function uploadAndSend(file: File, opts: {
-  conversationId: string;
-  caption?: string;
-  voiceNote?: boolean;
-}) {
-  const prepared = await invokeMedia({
-    action: 'prepare-upload',
-    conversation_id: opts.conversationId,
-    filename: file.name || 'arquivo',
-    mime: file.type || 'application/octet-stream',
-    size: file.size,
-  });
-  if (prepared.error || !prepared.data?.ok || !prepared.data.path || !prepared.data.token) {
-    return prepared;
-  }
-
-  const supabase = getSupabase();
-  const uploaded = await supabase.storage
-    .from(MEDIA_BUCKET)
-    .uploadToSignedUrl(prepared.data.path, prepared.data.token, file, {
-      contentType: file.type || 'application/octet-stream',
-    });
-  if (uploaded.error) {
-    return {
-      data: null,
-      error: uploaded.error,
-      message: `Storage: ${uploaded.error.message}`,
-    };
-  }
-
-  return invokeMedia({
-    action: 'send-stored',
-    conversation_id: opts.conversationId,
-    path: prepared.data.path,
-    content: opts.caption ?? '',
-    voice_note: opts.voiceNote === true,
-  });
-}
-
-
 export function MessageInput({ conversationId, disabled, withinWindow = true, onSendText }: MessageInputProps) {
   const [content, setContent] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
