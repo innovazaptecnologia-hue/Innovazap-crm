@@ -35,6 +35,170 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'Sem permissão para enviar mensagens.' }, { status: 403 });
     }
 
+const requestType = req.headers.get('content-type') ?? '';
+if (requestType.includes('application/json')) {
+  const body = await req.json().catch(() => null) as {
+    action?: string;
+    conversation_id?: string;
+    filename?: string;
+    mime?: string;
+    size?: number;
+    path?: string;
+    content?: string;
+    voice_note?: boolean;
+  } | null;
+  if (!body?.action) {
+    return jsonResponse({ ok: false, error: 'Ação ausente.' }, { status: 400 });
+  }
+
+  const admin = getAdminClient();
+  const conversationId = String(body.conversation_id ?? '').trim();
+  if (!conversationId) {
+    return jsonResponse({ ok: false, error: 'conversation_id ausente.' }, { status: 400 });
+  }
+
+  const { data: conv, error: convErr } = await admin
+    .from('conversations')
+    .select('id, org_id, contact_id, channel, channel_id, zernio_conversation_id, zernio_account_id, provider')
+    .eq('id', conversationId)
+    .maybeSingle();
+  if (convErr) return jsonResponse({ ok: false, error: convErr.message }, { status: 500 });
+  if (!conv || conv.org_id !== caller.orgId) {
+    return jsonResponse({ ok: false, error: 'Conversa não encontrada.' }, { status: 404 });
+  }
+
+  const BUCKET = 'whatsapp-hub-agent-media';
+
+  if (body.action === 'prepare-upload') {
+    const size = Number(body.size ?? 0);
+    if (!Number.isFinite(size) || size <= 0 || size > MAX_BYTES) {
+      return jsonResponse({ ok: false, error: 'Arquivo excede 25MB.' }, { status: 400 });
+    }
+    const safeName = String(body.filename ?? 'arquivo')
+      .replace(/[^\w.\-]+/g, '_')
+      .slice(0, 80) || 'arquivo';
+    const objectPath = `${caller.orgId}/${conversationId}/${crypto.randomUUID()}-${safeName}`;
+    const { data: signed, error: signErr } = await admin.storage
+      .from(BUCKET)
+      .createSignedUploadUrl(objectPath);
+    if (signErr || !signed) {
+      return jsonResponse({ ok: false, error: `Storage: ${signErr?.message ?? 'sem URL'}` }, { status: 502 });
+    }
+    return jsonResponse({ ok: true, path: objectPath, token: signed.token });
+  }
+
+  if (body.action === 'send-stored') {
+    const objectPath = String(body.path ?? '').trim();
+    const expectedPrefix = `${caller.orgId}/${conversationId}/`;
+    if (!objectPath.startsWith(expectedPrefix)) {
+      return jsonResponse({ ok: false, error: 'Arquivo inválido.' }, { status: 400 });
+    }
+
+    const channel = conv.channel === 'instagram' ? 'instagram' : 'whatsapp';
+    const sendCtx = await getSendContextForConversation(admin, {
+      org_id: caller.orgId,
+      channel_id: conv.channel_id ?? null,
+      provider: conv.provider ?? null,
+      zernio_account_id: conv.zernio_account_id ?? null,
+    });
+    const isUazapi = sendCtx.provider === 'uazapi' && channel === 'whatsapp';
+
+    const downloaded = await admin.storage.from(BUCKET).download(objectPath);
+    if (downloaded.error || !downloaded.data) {
+      return jsonResponse({ ok: false, error: `Storage: ${downloaded.error?.message ?? 'arquivo não encontrado'}` }, { status: 502 });
+    }
+    const bytes = new Uint8Array(await downloaded.data.arrayBuffer());
+    const mime = downloaded.data.type || String(body.mime ?? 'application/octet-stream');
+    const contentType = classify(mime);
+    const voiceNote = body.voice_note === true;
+    const filename = objectPath.split('/').pop() || 'arquivo';
+
+    let mediaUrl: string;
+    if (isUazapi) {
+      const signed = await admin.storage.from(BUCKET).createSignedUrl(objectPath, 60 * 60 * 24);
+      if (signed.error || !signed.data?.signedUrl) {
+        return jsonResponse({ ok: false, error: `Storage: ${signed.error?.message ?? 'sem link'}` }, { status: 502 });
+      }
+      mediaUrl = signed.data.signedUrl;
+    } else {
+      const zernio = await loadOrgZernioContext(admin, caller.orgId, conv.zernio_account_id ?? null);
+      mediaUrl = await uploadMediaDirect({
+        apiKey: zernio.apiKey,
+        bytes,
+        filename,
+        contentType: mime,
+      });
+    }
+
+    const { data: contactRow } = await admin
+      .from('contacts')
+      .select('phone, instagram_id')
+      .eq('id', conv.contact_id)
+      .maybeSingle();
+    const contact = (contactRow as { phone?: string; instagram_id?: string } | null) ?? {};
+    const caption = String(body.content ?? '').trim();
+
+    const zernioMessageId = await sendInboxWithResolve(
+      admin,
+      {
+        conversationRowId: conversationId,
+        orgId: caller.orgId,
+        channel,
+        phone: contact.phone ?? null,
+        instagramId: contact.instagram_id ?? null,
+        storedZernioConversationId: conv.zernio_conversation_id,
+        channelId: conv.channel_id ?? null,
+        zernioAccountId: conv.zernio_account_id ?? null,
+        provider: conv.provider ?? null,
+      },
+      {
+        attachmentUrl: mediaUrl,
+        attachmentType: contentType === 'document' ? 'file' : contentType,
+        voiceNote,
+        text: caption || undefined,
+      },
+    );
+
+    const { data: inserted, error: insErr } = await admin
+      .from('messages')
+      .insert({
+        org_id: caller.orgId,
+        conversation_id: conversationId,
+        direction: 'outbound',
+        sender_type: 'operator',
+        sender_id: caller.userId,
+        content_type: contentType,
+        content: caption || null,
+        media_url: mediaUrl,
+        zernio_message_id: zernioMessageId,
+        meta_status: 'sent',
+        is_private_note: false,
+      })
+      .select('id')
+      .single();
+    if (insErr) return jsonResponse({ ok: false, error: insErr.message }, { status: 500 });
+
+    await admin
+      .from('conversations')
+      .update({
+        last_message_at: new Date().toISOString(),
+        status: 'human_active',
+        ai_paused: true,
+        assigned_to: caller.userId,
+      })
+      .eq('id', conversationId);
+
+    return jsonResponse({
+      ok: true,
+      message_id: (inserted as { id: string }).id,
+      sent_to_channel: true,
+    });
+  }
+
+  return jsonResponse({ ok: false, error: 'Ação inválida.' }, { status: 400 });
+}
+
+
     let form: FormData;
     try {
       form = await req.formData();
