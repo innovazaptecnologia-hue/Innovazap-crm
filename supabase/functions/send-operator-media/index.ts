@@ -115,7 +115,13 @@ Deno.serve(async (req) => {
         zernioAccountId: convRow.zernio_account_id ?? null,
         provider: convRow.provider ?? null,
       },
-      { attachmentUrl: mediaUrl, voiceNote, text: caption || undefined },
+      {
+        attachmentUrl: mediaUrl,
+        attachmentType: contentType === 'document' ? 'file' : contentType,
+        voiceNote,
+        text: caption || undefined,
+      },
+
     );
 
     // 4. Persiste a linha (media_url = url do Zernio, baixável pelo thread).
