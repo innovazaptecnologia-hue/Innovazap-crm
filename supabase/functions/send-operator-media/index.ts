@@ -90,8 +90,28 @@ Deno.serve(async (req) => {
 
     // 1. Sobe a mídia ao Zernio (host da URL usada no attachmentUrl, inclusive
     //    para conversas UAZAPI que enviam a URL direto pela instância).
-    const zernio = await loadOrgZernioContext(admin, caller.orgId, convRow.zernio_account_id ?? null);
-    const mediaUrl = await uploadMediaDirect({ apiKey: zernio.apiKey, bytes, filename, contentType: mime });
+    const BUCKET = 'whatsapp-hub-agent-media';
+
+function safeName(name: string): string {
+  return name.replace(/[^\w.\-]+/g, '_').slice(0, 80) || 'arquivo';
+}
+
+let mediaUrl: string;
+const isUazapi = (convRow.provider ?? '') === 'uazapi' && channel === 'whatsapp';
+
+if (isUazapi) {
+  const objectPath = `${caller.orgId}/${conversationId}/${crypto.randomUUID()}-${safeName(filename)}`;
+  const { error: upErr } = await admin.storage
+    .from(BUCKET)
+    .upload(objectPath, bytes, { contentType: mime, upsert: false });
+  if (upErr) {
+    return jsonResponse({ ok: false, error: `Storage: ${upErr.message}` }, { status: 502 });
+  }
+  mediaUrl = admin.storage.from(BUCKET).getPublicUrl(objectPath).data.publicUrl;
+} else {
+  const zernio = await loadOrgZernioContext(admin, caller.orgId, convRow.zernio_account_id ?? null);
+  mediaUrl = await uploadMediaDirect({ apiKey: zernio.apiKey, bytes, filename, contentType: mime });
+}
 
     // 2. Resolve a conversa 1:1 no Zernio (por canal) e envia a mídia, curando
     //    o id salvo se o Zernio o rejeitar.
